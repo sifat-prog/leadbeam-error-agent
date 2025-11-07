@@ -242,6 +242,11 @@ def reject_fix(ack):
 # ---------------------- FLASK ROUTE ----------------------
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
+    data = request.get_json(silent=True) or {}
+    if data.get("type") == "url_verification":
+        # respond to Slack's verification challenge
+        return {"challenge": data["challenge"]}, 200
+    # otherwise, let Bolt handle the real events
     return handler.handle(request)
 
 # ---------------------- RUN ----------------------
