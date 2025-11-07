@@ -252,4 +252,5 @@ def slack_events():
 # ---------------------- RUN ----------------------
 if __name__ == "__main__":
     print("⚡ Leadbeam Error Agent running...")
-    flask_app.run(port=3000, debug=True)
+    port = int(os.environ.get("PORT", 3000))
+    flask_app.run(host="0.0.0.0", port=port)
