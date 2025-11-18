@@ -109,48 +109,54 @@ def handle_message_events(body, say, logger):
     parsed = parse_error_log(text)
     if not parsed:
         return
-
+    
+    print("✅ Parsed error:", parsed)
     draft = draft_fix_message(parsed["email"], parsed["message"])
 
     # Send approval message with edit option
-    bolt_app.client.chat_postMessage(
-        channel=APPROVER_ID,
-        text=f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
-                },
-            },
-            {
-                "type": "actions",
-                "elements": [
+    # Send to Gabe + you
+    approver_ids = [APPROVER_ID, os.getenv("SECOND_APPROVER_ID")]
+
+    for approver in approver_ids:
+        if approver:
+            bolt_app.client.chat_postMessage(
+                channel=approver,
+                text=f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
+                blocks=[
                     {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "✅ Approve"},
-                        "style": "primary",
-                        "value": json.dumps(parsed | {"draft": draft}),
-                        "action_id": "approve_fix",
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
+                        },
                     },
                     {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "✏️ Edit"},
-                        "value": json.dumps(parsed | {"draft": draft}),
-                        "action_id": "edit_fix",
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "🚫 Reject"},
-                        "style": "danger",
-                        "value": "reject",
-                        "action_id": "reject_fix",
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "✅ Approve"},
+                                "style": "primary",
+                                "value": json.dumps(parsed | {"draft": draft}),
+                                "action_id": "approve_fix",
+                            },
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "✏️ Edit"},
+                                "value": json.dumps(parsed | {"draft": draft}),
+                                "action_id": "edit_fix",
+                            },
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "🚫 Reject"},
+                                "style": "danger",
+                                "value": "reject",
+                                "action_id": "reject_fix",
+                            },
+                        ],
                     },
                 ],
-            },
-        ],
-    )
+            )
 
 # ---------- APPROVE ----------
 @bolt_app.action("approve_fix")
