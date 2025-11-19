@@ -107,84 +107,72 @@ def draft_fix_message(email, message):
     return f"Hi {email}, {suggestion}"
 
 # ---------------------- SLACK HANDLERS ----------------------
-    @bolt_app.event("message")
-    def handle_message_events(body, say, logger):
-        event = body.get("event", {})
-        text = event.get("text", "")
-        user = event.get("user")
-        if not text or event.get("bot_id"):
-            return
+@bolt_app.event("message")
+def handle_message_events(body, say, logger):
+    event = body.get("event", {})
+    text = event.get("text", "")
+    user = event.get("user")
 
-        if text.lower().strip() in ["hi", "hello", "hey"]:
-            say(f"Hey <@{user}> 👋 I'm alive and connected!")
-            return
+    if not text or event.get("bot_id"):
+        return
 
-        parsed_errors = parse_error_blocks(text)
+    if text.lower().strip() in ["hi", "hello", "hey"]:
+        say(f"Hey <@{user}> 👋 I'm alive and connected!")
+        return
+
+    # Parse MULTIPLE errors in one Slack message
+    parsed_errors = parse_error_blocks(text)
     if not parsed_errors:
         return
 
     print("✅ Found errors:", parsed_errors)
 
+    approver_ids = [APPROVER_ID, os.getenv("SECOND_APPROVER_ID")]
+
+    # Send each error as a separate approval block
     for parsed in parsed_errors:
         draft = draft_fix_message(parsed["email"], parsed["message"])
-
-        approver_ids = [APPROVER_ID, os.getenv("SECOND_APPROVER_ID")]
 
         for approver in approver_ids:
             if approver:
                 bolt_app.client.chat_postMessage(
                     channel=approver,
                     text=f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
-                    blocks=[ ... same as before ... ]
-                )
-    
-    print("✅ Parsed error:", parsed)
-    draft = draft_fix_message(parsed["email"], parsed["message"])
-
-    # Send approval message with edit option
-    # Send to Gabe + you
-    approver_ids = [APPROVER_ID, os.getenv("SECOND_APPROVER_ID")]
-
-    for approver in approver_ids:
-        if approver:
-            bolt_app.client.chat_postMessage(
-                channel=approver,
-                text=f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
+                            },
                         },
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "✅ Approve"},
-                                "style": "primary",
-                                "value": json.dumps(parsed | {"draft": draft}),
-                                "action_id": "approve_fix",
-                            },
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "✏️ Edit"},
-                                "value": json.dumps(parsed | {"draft": draft}),
-                                "action_id": "edit_fix",
-                            },
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "🚫 Reject"},
-                                "style": "danger",
-                                "value": "reject",
-                                "action_id": "reject_fix",
-                            },
-                        ],
-                    },
-                ],
-            )
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "✅ Approve"},
+                                    "style": "primary",
+                                    "value": json.dumps(parsed | {"draft": draft}),
+                                    "action_id": "approve_fix",
+                                },
+                                {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "✏️ Edit"},
+                                    "value": json.dumps(parsed | {"draft": draft}),
+                                    "action_id": "edit_fix",
+                                },
+                                {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "🚫 Reject"},
+                                    "style": "danger",
+                                    "value": "reject",
+                                    "action_id": "reject_fix",
+                                },
+                            ],
+                        },
+                    ],
+                )
 
 # ---------- APPROVE ----------
 @bolt_app.action("approve_fix")
