@@ -59,26 +59,39 @@ def call_openai_summary(raw_message):
     except Exception as e:
         return f"Could not summarize error: {e}"
 
-def parse_error_log(text):
-    if "crm_api/v1/sforce" not in text and "crm_api/v1/salesforce" not in text:
-        return None
+def parse_error_blocks(full_text):
+    """
+    Splits a giant log message into individual error blocks.
+    Each block starts with 'URL:' and continues until the next 'URL:'.
+    Returns a list of parsed error dicts.
+    """
+    blocks = full_text.split("URL:")
+    parsed_errors = []
 
-    email = re.search(r"[\w\.-]+@[\w\.-]+", text)
-    code = re.search(r"Error code\s*=\s*(\d+)", text)
-    message = re.search(r"(?i)validation error.*?\"([^\"]+)\"", text)
-    if not message:
-        message = re.search(r"'message':\s*(?:\[\{)?['\"]?([^'\"]{10,500})['\"]?", text)
+    for block in blocks[1:]:  # skip the first part before first URL
+        text = "URL:" + block.strip()
 
-    email = email.group(0) if email else None
-    code = code.group(1) if code else None
-    message = message.group(1).strip() if message else None
+        # email
+        email = re.search(r"[\w\.-]+@[\w\.-]+", text)
+        email = email.group(0) if email else None
 
-    if not email or not code or not message:
-        return None
-    if code not in ["400", "409"]:
-        return None
+        # error code
+        code = re.search(r"Error code\s*=\s*(\d+)", text)
+        code = code.group(1) if code else None
 
-    return {"email": email, "code": code, "message": message}
+        # message
+        message_match = re.search(r"'message':\s*['\"](.+?)['\"]", text)
+        message = message_match.group(1).strip() if message_match else None
+
+        # Only accept 400/409 errors
+        if email and code in ["400", "409"] and message:
+            parsed_errors.append({
+                "email": email,
+                "code": code,
+                "message": message
+            })
+
+    return parsed_errors
 
 def draft_fix_message(email, message):
     msg_lower = message.lower()
@@ -94,21 +107,36 @@ def draft_fix_message(email, message):
     return f"Hi {email}, {suggestion}"
 
 # ---------------------- SLACK HANDLERS ----------------------
-@bolt_app.event("message")
-def handle_message_events(body, say, logger):
-    event = body.get("event", {})
-    text = event.get("text", "")
-    user = event.get("user")
-    if not text or event.get("bot_id"):
+    @bolt_app.event("message")
+    def handle_message_events(body, say, logger):
+        event = body.get("event", {})
+        text = event.get("text", "")
+        user = event.get("user")
+        if not text or event.get("bot_id"):
+            return
+
+        if text.lower().strip() in ["hi", "hello", "hey"]:
+            say(f"Hey <@{user}> 👋 I'm alive and connected!")
+            return
+
+        parsed_errors = parse_error_blocks(text)
+    if not parsed_errors:
         return
 
-    if text.lower().strip() in ["hi", "hello", "hey"]:
-        say(f"Hey <@{user}> 👋 I'm alive and connected!")
-        return
+    print("✅ Found errors:", parsed_errors)
 
-    parsed = parse_error_log(text)
-    if not parsed:
-        return
+    for parsed in parsed_errors:
+        draft = draft_fix_message(parsed["email"], parsed["message"])
+
+        approver_ids = [APPROVER_ID, os.getenv("SECOND_APPROVER_ID")]
+
+        for approver in approver_ids:
+            if approver:
+                bolt_app.client.chat_postMessage(
+                    channel=approver,
+                    text=f"*Detected Salesforce Error*\nEmail: {parsed['email']}\nCode: {parsed['code']}\nError: {parsed['message']}\n\n*Draft Message:*\n{draft}",
+                    blocks=[ ... same as before ... ]
+                )
     
     print("✅ Parsed error:", parsed)
     draft = draft_fix_message(parsed["email"], parsed["message"])
